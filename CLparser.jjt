@@ -1,0 +1,226 @@
+options {
+    STATIC = false;  // Ensures the parser is non-static
+}
+
+PARSER_BEGIN(CLParser)
+
+import java.util.Scanner;
+
+public class CLParser {
+    public static SymbolTable symbolTable = new SymbolTable();  // Global symbol table
+    private StringBuilder parseTree = new StringBuilder();  // For building the parse tree output
+    private int indentLevel = 0;  // To manage indentation for printing
+
+    public static void main(String[] args) {
+        try {
+            CLParser parser = new CLParser(System.in);  // Create parser with input from System.in
+            parser.startProgram();  // Start parsing
+            System.out.println("Program parsed successfully.");
+            System.out.println(parser.getParseTree());  // Print the parse tree
+        } catch (Exception e) {
+            System.out.println("Error: " + e.getMessage());
+        }
+    }
+
+    public String getParseTree() {
+        return parseTree.toString();  // Return the constructed parse tree
+    }
+
+    private void indent() {
+        for (int i = 0; i < indentLevel; i++) {
+            parseTree.append("│   ");
+        }
+    }
+
+    private void increaseIndent() {
+        indentLevel++;
+    }
+
+    private void decreaseIndent() {
+        indentLevel--;
+    }
+
+    private void appendToParseTree(String text) {
+        indent();  // Handle indentation
+        parseTree.append(text).append("\n");  // Append the text to the parse tree
+    }
+}
+
+PARSER_END(CLParser)
+
+SKIP : {
+    " " | "\t" | "\n" | "\r"  // Skip spaces, tabs, newlines, and carriage returns
+}
+
+TOKEN : {
+    < START_PROGRAM : "startProgram" >
+|   < END_PROGRAM : "endProgram" >
+|   < VARIABLES : "variables:" >
+|   < CODE : "code:" >
+|   < IDENTIFIER : (["a"-"z", "A"-"Z"])+ >
+|   < INTEGER : (["0"-"9"])+ >
+|   < FLOAT : (["0"-"9"])+ "." (["0"-"9"])+ >
+|   < STRING : "\"" (~["\""])* "\"" >  // String token with multiple characters
+|   < CHAR : "'" ~["'"] "'" >
+|   < SEMICOLON : ";" >
+|   < ASSIGN : "=" >
+|   < PLUS : "+" >
+|   < MINUS : "-" >
+|   < MULTIPLY : "*" >
+|   < DIVIDE : "/" >
+|   < LESS_THAN_EQUAL : "<=" >
+|   < GREATER_THAN_EQUAL : ">=" >
+|   < EQUAL : "==" >
+|   < NOT_EQUAL : "<>" >
+}
+
+void startProgram() :
+{ }
+{
+    <START_PROGRAM> { 
+        appendToParseTree("startProgram");
+        increaseIndent();  // Indent when starting program block
+    }
+    variablesBlock() { 
+        appendToParseTree("variablesBlock"); 
+    }
+    codeBlock() { 
+        appendToParseTree("codeBlock"); 
+    }
+    <END_PROGRAM> { 
+        appendToParseTree("endProgram");
+        decreaseIndent();  // Decrease indentation when ending program block
+    }
+}
+
+void variablesBlock() :
+{ }
+{
+    <VARIABLES> { 
+        appendToParseTree("VARIABLES"); 
+        increaseIndent();  // Indent when starting variables block
+    }
+    ( variableDeclaration() { /* Handle each variable */ } )*
+    { 
+        decreaseIndent();  // Decrease indentation after variables block
+    }
+}
+
+void codeBlock() :
+{ }
+{
+    <CODE> { 
+        appendToParseTree("CODE"); 
+        increaseIndent();  // Indent when starting code block
+    }
+    ( statement() { /* Handle each statement */ } )*
+    { 
+        decreaseIndent();  // Decrease indentation after code block
+    }
+}
+
+void variableDeclaration() :
+{
+    Token id;
+    Object value;
+}
+{
+    id = <IDENTIFIER>
+    <ASSIGN>
+    ( value = <INTEGER> {
+        // Adding variable to symbol table as INTEGER
+        symbolTable.addVariable(id.image, SymbolTable.Type.INTEGER, Integer.parseInt(((Token)value).image));
+        appendToParseTree("variableDeclaration -> IDENTIFIER (" + id.image + ") ASSIGN (=) INTEGER (" + value + ")");
+    }
+    | value = <FLOAT> {
+        // Adding variable to symbol table as FLOAT
+        symbolTable.addVariable(id.image, SymbolTable.Type.FLOAT, Float.parseFloat(((Token)value).image));
+        appendToParseTree("variableDeclaration -> IDENTIFIER (" + id.image + ") ASSIGN (=) FLOAT (" + value + ")");
+    }
+    | value = <STRING> {
+        // Adding variable to symbol table as STRING
+        symbolTable.addVariable(id.image, SymbolTable.Type.STRING, ((Token)value).image);
+        appendToParseTree("variableDeclaration -> IDENTIFIER (" + id.image + ") ASSIGN (=) STRING (\"" + value + "\")");
+    }
+    | value = <CHAR> {
+        // Adding variable to symbol table as CHAR
+        symbolTable.addVariable(id.image, SymbolTable.Type.CHAR, ((Token)value).image.charAt(1));  // Only take the character between single quotes
+        appendToParseTree("variableDeclaration -> IDENTIFIER (" + id.image + ") ASSIGN (=) CHAR ('" + value + "')");
+    }
+    )
+    <SEMICOLON>
+}
+
+void statement() :
+{
+    Token id;
+    Object exprValue;
+}
+{
+    id = <IDENTIFIER>
+    <ASSIGN>
+    exprValue = expression() 
+    <SEMICOLON>
+    {
+        // Updating variable in symbol table
+        if (symbolTable.isDeclared(id.image)) {
+            symbolTable.updateVariable(id.image, exprValue);  // Update variable in symbol table
+            appendToParseTree("statement -> IDENTIFIER (" + id.image + ") ASSIGN (=) EXPRESSION");
+        } else {
+            throw new ParseException("Variable " + id.image + " not declared.");
+        }
+    }
+}
+
+Object expression() :
+{
+    Object left, right;
+}
+{
+    left = term() 
+    (
+        <PLUS> right = term() { left = (Float)left + (Float)right; }
+      | <MINUS> right = term() { left = (Float)left - (Float)right; }
+    )*
+    { return left; }
+}
+
+Object term() :
+{
+    Object left, right;
+}
+{
+    left = factor() 
+    (
+        <MULTIPLY> right = factor() { left = (Float)left * (Float)right; }
+      | <DIVIDE> right = factor() { left = (Float)left / (Float)right; }
+    )*
+    { return left; }
+}
+
+Object factor() :
+{
+    Token id;
+    Object value;
+}
+{
+    (
+        id = <INTEGER> { 
+            appendToParseTree("factor -> INTEGER (" + id.image + ")");
+            return Integer.parseInt(id.image); 
+        }
+      | id = <FLOAT> { 
+            appendToParseTree("factor -> FLOAT (" + id.image + ")");
+            return Float.parseFloat(id.image); 
+        }
+      | id = <IDENTIFIER> { 
+            // Return variable value from the symbol table
+            if (symbolTable.isDeclared(id.image)) {
+                appendToParseTree("factor -> IDENTIFIER (" + id.image + ")");
+                return symbolTable.getVariable(id.image); 
+            } else {
+                throw new ParseException("Variable " + id.image + " not declared.");
+            }
+        }
+    )
+}
